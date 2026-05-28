@@ -1,20 +1,52 @@
 @startuml
-title Diagrama de Casos de Uso - CineFlow
 left to right direction
-actor Cliente
-actor Administrador
-actor Funcionario
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
 
-rectangle "CineFlow" {
-  usecase "Navegar filmes" as UC1
-  usecase "Visualizar sessões" as UC2
-  usecase "Reservar ingresso" as UC3
-  usecase "Cancelar reserva" as UC4
-  usecase "Pagar reserva" as UC5
-  usecase "Avaliar filme" as UC6
-  usecase "Gerenciar filmes" as UC7
-  usecase "Gerenciar sessões" as UC8
-  usecase "Autenticar" as UC9
+actor "Cliente" as Cliente
+actor "Funcionário\n(Validador)" as Validador
+actor "Gerente de Cinema" as Gerente
+actor "Gateway de\nPagamento Externo" as Gateway
+
+rectangle "Sistema CineFlow" {
+
+    usecase "Visualizar catálogo\nde filmes" as UC1
+    
+    usecase "Selecionar sessão" as UC2
+    
+    usecase "Visualizar mapa\nde assentos" as UC3
+    
+    usecase "Reservar assento\ntemporariamente" as UC4
+    
+    usecase "Realizar compra\nde ingresso" as UC5
+    
+    usecase "Processar pagamento" as UC6
+    
+    usecase "Gerar ingresso\ncom QR Code" as UC7
+    
+    usecase "Enviar confirmação\npor e-mail" as UC8
+    
+    usecase "Apresentar QR Code" as UC9
+    
+    usecase "Validar ingresso" as UC10
+    
+    usecase "Alterar status do\ningresso para Utilizado" as UC11
+    
+    usecase "Cadastrar filmes" as UC12
+    
+    usecase "Configurar sessões" as UC13
+    
+    usecase "Gerenciar salas" as UC14
+    
+    usecase "Emitir relatório\nde ocupação" as UC15
+    
+    usecase "Emitir relatório\nde faturamento" as UC16
+    
+    usecase "Cancelar sessão" as UC17
+    
+    usecase "Reembolsar ingressos" as UC18
+    
+    usecase "Liberar assento\nexpirado" as UC19
 }
 
 Cliente --> UC1
@@ -22,13 +54,27 @@ Cliente --> UC2
 Cliente --> UC3
 Cliente --> UC4
 Cliente --> UC5
-Cliente --> UC6
 Cliente --> UC9
 
-Administrador --> UC7
-Administrador --> UC8
-Administrador --> UC9
+Validador --> UC10
 
-Funcionario --> UC8
+Gerente --> UC12
+Gerente --> UC13
+Gerente --> UC14
+Gerente --> UC15
+Gerente --> UC16
+Gerente --> UC17
+
+Gateway --> UC6
+
+UC5 .> UC6 : <<include>>
+UC5 .> UC7 : <<include>>
+UC7 .> UC8 : <<include>>
+
+UC10 .> UC11 : <<include>>
+
+UC17 .> UC18 : <<include>>
+
+UC4 .> UC19 : <<extend>>
 
 @enduml

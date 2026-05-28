@@ -1,0 +1,91 @@
+@startuml
+title CineFlow - Diagrama de Banco de Dados
+
+skinparam linetype ortho
+skinparam shadowing false
+hide methods
+
+entity Usuario {
+  *id : UUID
+  --
+  nome : string
+  email : string
+  senha : string
+  tipo : string
+}
+
+entity Filme {
+  *id : UUID
+  --
+  titulo : string
+  genero : string
+  duracao : int
+  classificacao : string
+}
+
+entity Sala {
+  *id : UUID
+  --
+  nome : string
+  capacidade : int
+}
+
+entity Sessao {
+  *id : UUID
+  --
+  horario : datetime
+  idioma : string
+  preco : decimal
+}
+
+entity Assento {
+  *id : UUID
+  --
+  numero : string
+  fileira : string
+  status : string
+}
+
+entity Ingresso {
+  *id : UUID
+  --
+  qrCode : string
+  status : string
+  dataCompra : datetime
+}
+
+entity Pagamento {
+  *id : UUID
+  --
+  valor : decimal
+  status : string
+  metodo : string
+}
+
+entity Notificacao {
+  *id : UUID
+  --
+  mensagem : string
+  tipo : string
+  enviada : boolean
+}
+
+' =====================================================
+' RELACIONAMENTOS
+' =====================================================
+
+Filme ||--o{ Sessao
+
+Sala ||--o{ Sessao
+
+Sessao ||--o{ Assento
+
+Usuario ||--o{ Ingresso
+
+Sessao ||--o{ Ingresso
+
+Ingresso ||--|| Pagamento
+
+Usuario ||--o{ Notificacao
+
+@enduml

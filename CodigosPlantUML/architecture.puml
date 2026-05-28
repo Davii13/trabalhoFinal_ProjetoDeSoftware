@@ -1,35 +1,64 @@
 @startuml
-title Diagrama de Arquitetura - CineFlow (Visão Geral)
-package "Front-end" {
+title CineFlow - Arquitetura Geral
+
+left to right direction
+skinparam linetype ortho
+skinparam shadowing false
+
+package "Frontend" {
   [Web SPA]
-  [Aplicativo Mobile]
+  [Mobile App]
+  [Admin Panel]
 }
 
-package "Plataforma" {
-  [API Gateway / BFF]
-  [Load Balancer]
-}
+package "Backend" {
+  [API Gateway]
 
-package "Microsserviços" {
+  [Auth Service]
   [Catalog Service]
   [Sales Service]
-  [Auth Service]
   [Payment Service]
   [Notification Service]
-  [Search Service]
 }
 
-package "Infraestrutura" {
-  [Message Broker (RabbitMQ / SQS)]
-  [Elasticsearch / OpenSearch]
-  [Banco de Dados por Serviço]
+package "Mensageria" {
+  queue "RabbitMQ / SQS"
 }
 
-[Web SPA] --> [API Gateway / BFF]
-[Aplicativo Mobile] --> [API Gateway / BFF]
-[API Gateway / BFF] --> [Catalog Service]
-[API Gateway / BFF] --> [Sales Service]
-[Sales Service] --> [Message Broker (RabbitMQ / SQS)]
-[Search Service] --> [Elasticsearch / OpenSearch]
+package "Dados" {
+  database "PostgreSQL"
+  database "Redis Cache"
+  database "Elasticsearch"
+}
+
+package "Cloud" {
+  [Vercel]
+  [Render]
+  [AWS]
+}
+
+[Web SPA] --> [Vercel]
+[Mobile App] --> [Vercel]
+[Admin Panel] --> [Render]
+
+[Vercel] --> [API Gateway] : HTTPS REST
+[Render] --> [API Gateway] : HTTPS REST
+
+[API Gateway] --> [Auth Service]
+[API Gateway] --> [Catalog Service]
+[API Gateway] --> [Sales Service]
+[API Gateway] --> [Payment Service]
+
+[Sales Service] --> "RabbitMQ / SQS"
+[Notification Service] --> "RabbitMQ / SQS"
+
+[Catalog Service] --> PostgreSQL
+[Sales Service] --> PostgreSQL
+[Sales Service] --> "Redis Cache"
+
+[Catalog Service] --> Elasticsearch
+
+[AWS] --> PostgreSQL
+[AWS] --> "RabbitMQ / SQS"
 
 @enduml

@@ -1,0 +1,379 @@
+@startuml
+title CineFlow - Diagrama de Sequência Completo
+
+skinparam backgroundColor #F5F5F5
+skinparam sequence {
+    ArrowColor black
+    LifeLineBorderColor black
+    LifeLineBackgroundColor #EFEFEF
+    ParticipantBorderColor black
+    ParticipantBackgroundColor #E8E8F8
+    ParticipantFontStyle bold
+    ActorBorderColor black
+    ActorBackgroundColor #FFFFFF
+    BoxBorderColor black
+}
+
+actor Cliente
+actor "Funcionário\nValidador" as Validador
+actor "Gerente\nCinema" as Gerente
+
+participant "Frontend\n(Web/Mobile)" as Front
+participant "API Gateway" as APIGW
+
+participant "Serviço de\nCatálogo" as Catalogo
+participant "Serviço de\nVendas" as Vendas
+participant "Serviço de\nPagamento" as Pagamento
+
+participant "Gateway de\nPagamento Externo" as Gateway
+
+queue "Amazon SQS" as SQS
+
+participant "Serviço de\nNotificação" as Notificacao
+
+database "CatalogDB" as CatalogDB
+database "SalesDB" as SalesDB
+
+== 1. CONSULTA DE FILMES E SESSÕES ==
+
+activate Cliente
+
+Cliente -> Front : 1.1 acessarPlataforma()
+
+activate Front
+
+Front -> APIGW : 1.2 GET /filmes
+
+activate APIGW
+
+APIGW -> Catalogo : 1.3 buscarCatalogo()
+
+activate Catalogo
+
+Catalogo -> CatalogDB : 1.4 consultarFilmesESessoes()
+
+activate CatalogDB
+CatalogDB --> Catalogo : 1.5 listaFilmes
+deactivate CatalogDB
+
+Catalogo --> APIGW : 1.6 catalogoDisponivel
+deactivate Catalogo
+
+APIGW --> Front : 1.7 respostaCatalogo
+deactivate APIGW
+
+Front --> Cliente : 1.8 exibirCatalogo()
+
+== 2. SELEÇÃO DE SESSÃO E ASSENTOS ==
+
+Cliente -> Front : 2.1 selecionarSessao(sessaoId)
+
+Front -> APIGW : 2.2 GET /sessoes/{id}/assentos
+
+activate APIGW
+
+APIGW -> Catalogo : 2.3 buscarMapaSala()
+
+activate Catalogo
+
+Catalogo -> CatalogDB : 2.4 consultarAssentos()
+
+activate CatalogDB
+CatalogDB --> Catalogo : 2.5 mapaSalaAtualizado
+deactivate CatalogDB
+
+Catalogo --> APIGW : 2.6 assentosDisponiveis
+deactivate Catalogo
+
+APIGW --> Front : 2.7 retornarMapaSala
+deactivate APIGW
+
+Front --> Cliente : 2.8 exibirAssentos()
+
+== 3. BLOQUEIO TEMPORÁRIO DE ASSENTO ==
+
+loop Para cada assento selecionado
+
+    Cliente -> Front : 3.1 selecionarAssento(assento)
+
+    Front -> APIGW : 3.2 POST /reservas
+
+    activate APIGW
+
+    APIGW -> Vendas : 3.3 criarReservaTemporaria()
+
+    activate Vendas
+
+    Vendas -> SalesDB : 3.4 salvarReserva(PENDENTE)
+
+    activate SalesDB
+    SalesDB --> Vendas : 3.5 reservaCriada
+    deactivate SalesDB
+
+    Vendas --> APIGW : 3.6 reservaConfirmada
+    deactivate Vendas
+
+    APIGW --> Front : 3.7 assentoBloqueado(10min)
+    deactivate APIGW
+
+end
+
+Front --> Cliente : 3.8 exibirTempoRestante()
+
+== 4. CHECKOUT E PROCESSAMENTO DE PAGAMENTO ==
+
+Cliente -> Front : 4.1 informarDadosPagamento()
+
+Front -> APIGW : 4.2 POST /checkout
+
+activate APIGW
+
+APIGW -> Pagamento : 4.3 solicitarPagamento()
+
+activate Pagamento
+
+Pagamento -> Gateway : 4.4 processarTransacao()
+
+activate Gateway
+
+alt Pagamento aprovado
+
+    Gateway --> Pagamento : 4.5 transacaoAprovada
+
+    deactivate Gateway
+
+    Pagamento --> APIGW : 4.6 pagamentoAprovado
+
+    deactivate Pagamento
+
+    APIGW -> Vendas : 4.7 confirmarReserva()
+
+    activate Vendas
+
+    Vendas -> SalesDB : 4.8 atualizarStatus(PAGO_VALIDO)
+
+    activate SalesDB
+    SalesDB --> Vendas : 4.9 statusAtualizado
+    deactivate SalesDB
+
+    Vendas -> SalesDB : 4.10 gerarIngresso()
+
+    activate SalesDB
+    SalesDB --> Vendas : 4.11 ingressoComQRCode
+    deactivate SalesDB
+
+    Vendas -> SQS : 4.12 publish(IngressoGerado)
+
+    activate SQS
+
+    SQS -> Notificacao : 4.13 consumirEvento()
+
+    activate Notificacao
+
+    Notificacao -> Cliente : 4.14 enviarEmailIngresso()
+
+    deactivate Notificacao
+    deactivate SQS
+
+    Vendas --> APIGW : 4.15 compraFinalizada
+
+    deactivate Vendas
+
+    APIGW --> Front : 4.16 retornarETicket
+
+    deactivate APIGW
+
+    Front --> Cliente : 4.17 exibirQRCode()
+
+else Pagamento recusado
+
+    Gateway --> Pagamento : 4.5 transacaoRecusada
+
+    deactivate Gateway
+
+    Pagamento --> APIGW : 4.6 pagamentoRecusado
+
+    deactivate Pagamento
+
+    APIGW -> Vendas : 4.7 cancelarReserva()
+
+    activate Vendas
+
+    Vendas -> SalesDB : 4.8 liberarAssentos()
+
+    activate SalesDB
+    SalesDB --> Vendas : 4.9 assentosLiberados
+    deactivate SalesDB
+
+    Vendas --> APIGW : 4.10 reservaCancelada
+
+    deactivate Vendas
+
+    APIGW --> Front : 4.11 informarErroPagamento
+
+    deactivate APIGW
+
+    Front --> Cliente : 4.12 exibirMensagemErro()
+
+end
+
+== 5. EXPIRAÇÃO AUTOMÁTICA DE RESERVA ==
+
+activate Vendas
+
+Vendas -> SalesDB : 5.1 buscarReservasExpiradas()
+
+activate SalesDB
+SalesDB --> Vendas : 5.2 reservasEncontradas
+deactivate SalesDB
+
+Vendas -> SalesDB : 5.3 atualizarStatus(EXPIRADO)
+
+activate SalesDB
+SalesDB --> Vendas : 5.4 assentosLiberados
+deactivate SalesDB
+
+deactivate Vendas
+
+== 6. VALIDAÇÃO DE INGRESSO ==
+
+Cliente -> Validador : 6.1 apresentarQRCode()
+
+activate Validador
+
+Validador -> Front : 6.2 biparIngresso()
+
+Front -> APIGW : 6.3 POST /validacao
+
+activate APIGW
+
+APIGW -> Vendas : 6.4 validarIngresso()
+
+activate Vendas
+
+Vendas -> SalesDB : 6.5 consultarIngresso()
+
+activate SalesDB
+SalesDB --> Vendas : 6.6 dadosIngresso
+deactivate SalesDB
+
+alt Ingresso válido
+
+    Vendas -> SalesDB : 6.7 atualizarStatus(UTILIZADO)
+
+    activate SalesDB
+    SalesDB --> Vendas : 6.8 statusAtualizado
+    deactivate SalesDB
+
+    Vendas --> APIGW : 6.9 acessoLiberado
+
+    APIGW --> Front : 6.10 validacaoOK
+
+    Front --> Validador : 6.11 liberarEntrada()
+
+else Ingresso inválido
+
+    Vendas --> APIGW : 6.7 acessoNegado
+
+    APIGW --> Front : 6.8 ingressoInvalido
+
+    Front --> Validador : 6.9 bloquearEntrada()
+
+end
+
+deactivate Vendas
+deactivate APIGW
+deactivate Validador
+
+== 7. GERENCIAMENTO ADMINISTRATIVO ==
+
+group Cadastro de Filmes
+
+    Gerente -> Front : 7.1 cadastrarFilme()
+
+    Front -> APIGW : 7.2 POST /filmes
+
+    activate APIGW
+
+    APIGW -> Catalogo : 7.3 salvarFilme()
+
+    activate Catalogo
+
+    Catalogo -> CatalogDB : 7.4 persistirFilme()
+
+    activate CatalogDB
+    CatalogDB --> Catalogo : 7.5 filmeSalvo
+    deactivate CatalogDB
+
+    Catalogo --> APIGW : 7.6 confirmarCadastro
+
+    deactivate Catalogo
+
+    APIGW --> Front : 7.7 sucessoCadastro
+
+    deactivate APIGW
+
+end
+
+group Configuração de Sessões
+
+    Gerente -> Front : 7.8 configurarSessao()
+
+    Front -> APIGW : 7.9 POST /sessoes
+
+    activate APIGW
+
+    APIGW -> Catalogo : 7.10 criarSessao()
+
+    activate Catalogo
+
+    Catalogo -> CatalogDB : 7.11 salvarSessao()
+
+    activate CatalogDB
+    CatalogDB --> Catalogo : 7.12 sessaoCriada
+    deactivate CatalogDB
+
+    Catalogo --> APIGW : 7.13 configuracaoConcluida
+
+    deactivate Catalogo
+
+    APIGW --> Front : 7.14 sessaoConfigurada
+
+    deactivate APIGW
+
+end
+
+group Relatórios Gerenciais
+
+    Gerente -> Front : 7.15 emitirRelatorio()
+
+    Front -> APIGW : 7.16 GET /relatorios
+
+    activate APIGW
+
+    APIGW -> Vendas : 7.17 gerarRelatorio()
+
+    activate Vendas
+
+    Vendas -> SalesDB : 7.18 consultarVendasEOcupacao()
+
+    activate SalesDB
+    SalesDB --> Vendas : 7.19 dadosConsolidados
+    deactivate SalesDB
+
+    Vendas --> APIGW : 7.20 relatorioFinalizado
+
+    deactivate Vendas
+
+    APIGW --> Front : 7.21 retornarRelatorio
+
+    deactivate APIGW
+
+    Front --> Gerente : 7.22 exibirDashboard()
+
+end
+
+deactivate Front
+deactivate Cliente
+
+@enduml

@@ -1,242 +1,334 @@
 @startuml
 skinparam componentStyle rectangle
 skinparam linetype ortho
-skinparam nodesep 40
-skinparam ranksep 40
-skinparam pad 20
+skinparam nodesep 60
+skinparam ranksep 70
+left to right direction
 
-' ==========================================
-' ESTILIZAÇÃO VISUAL APRIMORADA
-' ==========================================
+' =====================================================
+' ESTILO
+' =====================================================
+
 skinparam package {
     BackgroundColor #F8F9FA
     BorderColor #6C757D
     FontStyle bold
 }
+
 skinparam component {
-    BackgroundColor #FFFFFF
+    BackgroundColor white
     BorderColor #343A40
 }
-skinparam database {
-    BackgroundColor #E3F2FD
-    BorderColor #0D47A1
-}
+
 skinparam queue {
     BackgroundColor #FFF3E0
-    BorderColor #E65100
+    BorderColor #EF6C00
 }
+
+skinparam database {
+    BackgroundColor #E3F2FD
+    BorderColor #1565C0
+}
+
 skinparam file {
     BackgroundColor #E8F5E9
     BorderColor #2E7D32
 }
+
 skinparam interface {
     BackgroundColor #FFE082
     BorderColor #FF8F00
 }
 
-title CineFlow - Sistema de Reserva de Ingressos\n(Arquitetura de Microsserviços Limpa e Alinhada)
+title CineFlow - Microsserviços Organizados\n(Spring Boot + REST + Workers + Broker)
 
-' ==========================================
-' ENTRADA DO SISTEMA
-' ==========================================
-component "Interface de Usuário\n(Web / Mobile)" as UI
-component "API Gateway\n(Roteamento e Autenticação)" as Gateway
+' =====================================================
+' FRONTEND
+' =====================================================
 
-UI --> Gateway
+package "Frontend" {
 
-' ==========================================
-' MICROSSERVIÇOS (ORGANIZADOS EM PILARES VERTICAIS)
-' ==========================================
-package "Backend - Microsserviços Isolados" {
+    component "Web SPA\nReact" as WEB
 
-    ' --- PILAR 1: CATÁLOGO ---
-    package "MS de Catálogo" {
-        interface "API REST" as API_Cat
-        file "Cat_DTO" as CatDTO
-        component "Cat_Controller" as CatC
-        component "Cat_Service" as CatS
-        file "Cat_Model" as CatModel
-        component "Cat_Repository" as CatR
-        component "Cat_DAO" as CatDAO
-        interface "TCP/IP" as TCP_Cat
-        database "DB_Catálogo\n(PostgreSQL)" as DB_Cat
+    component "Mobile App\nFlutter/Kotlin" as MOBILE
 
-        API_Cat -down- CatC : "Fornece"
-        CatC -right-> CatDTO : "Manipula"
-        CatC --> CatS
-        CatS -right-> CatModel : "Regras"
-        CatS --> CatR
-        CatR --> CatDAO
-        CatDAO --> TCP_Cat
-        TCP_Cat -down- DB_Cat
-    }
-
-    ' --- PILAR 2: VENDAS ---
-    package "MS de Vendas" {
-        interface "API REST" as API_Sales
-        file "Sales_DTO" as SalesDTO
-        component "Sales_Controller" as SalesC
-        component "Sales_Service" as SalesS
-        file "Sales_Model" as SalesModel
-        queue "Broker\n(RabbitMQ / SQS)" as Broker
-        component "Sales_Worker" as SalesW
-        component "Sales_Repository" as SalesR
-        component "Sales_DAO" as SalesDAO
-        interface "TCP/IP" as TCP_Sales
-        database "DB_Vendas\n(Aurora/RDS)" as DB_Sales
-
-        API_Sales -down- SalesC : "Fornece"
-        SalesC -right-> SalesDTO : "Manipula"
-        SalesC --> SalesS
-        SalesS -right-> SalesModel : "Regras"
-        SalesS --> Broker : "Publica Evento"
-        Broker --> SalesW : "Consome"
-        SalesW --> SalesR
-        SalesR --> SalesDAO
-        SalesDAO --> TCP_Sales
-        TCP_Sales -down- DB_Sales
-    }
-
-    ' --- PILAR 3: AUTENTICAÇÃO ---
-    package "MS de Autenticação" {
-        interface "API REST" as API_Auth
-        file "Auth_DTO" as AuthDTO
-        component "Auth_Controller" as AuthC
-        component "Auth_Service" as AuthS
-        file "Auth_Model" as AuthModel
-        component "Auth_Repository" as AuthR
-        component "Auth_DAO" as AuthDAO
-        interface "TCP/IP" as TCP_Auth
-        database "DB_Auth\n(PostgreSQL)" as DB_Auth
-
-        API_Auth -down- AuthC : "Fornece"
-        AuthC -right-> AuthDTO : "Manipula"
-        AuthC --> AuthS
-        AuthS -right-> AuthModel : "Regras"
-        AuthS --> AuthR
-        AuthR --> AuthDAO
-        AuthDAO --> TCP_Auth
-        TCP_Auth -down- DB_Auth
-    }
-
-    ' --- PILAR 4: PAGAMENTO ---
-    package "MS de Pagamento" {
-        interface "API REST" as API_Pay
-        file "Pay_DTO" as PayDTO
-        component "Pay_Controller" as PayC
-        component "Pay_Service" as PayS
-        file "Pay_Model" as PayModel
-        component "Pay_Adapter" as PayAdapter
-        component "Pay_Repository" as PayR
-        component "Pay_DAO" as PayDAO
-        interface "TCP/IP" as TCP_Pay
-        database "DB_Payment\n(RDS)" as DB_Pay
-
-        API_Pay -down- PayC : "Fornece"
-        PayC -right-> PayDTO : "Manipula"
-        PayC --> PayS
-        PayS -right-> PayModel : "Regras"
-        PayS --> PayAdapter : "Gateway Externo"
-        PayS --> PayR
-        PayR --> PayDAO
-        PayDAO --> TCP_Pay
-        TCP_Pay -down- DB_Pay
-    }
-
-    ' --- PILAR 5: NOTIFICAÇÕES ---
-    package "MS de Notificações" {
-        interface "API REST" as API_Notif
-        file "Notif_DTO" as NotifDTO
-        component "Notif_Controller" as NotifC
-        component "Notif_Service" as NotifS
-        file "Notif_Model" as NotifModel
-        component "Notif_Worker" as NotifW
-        component "Notif_Repository" as NotifR
-        component "Notif_DAO" as NotifDAO
-        interface "TCP/IP" as TCP_Notif
-        database "DB_Notificações\n(PostgreSQL)" as DB_Notif
-
-        API_Notif -down- NotifC : "Fornece"
-        NotifC -left-> NotifDTO : "Manipula"
-        NotifC --> NotifS
-        NotifS -left-> NotifModel : "Regras"
-        NotifS --> NotifW : "Delega Async"
-        NotifW --> NotifR
-        NotifR --> NotifDAO
-        NotifDAO --> TCP_Notif
-        TCP_Notif -down- DB_Notif
-    }
-
-    ' --- PILAR 6: BUSCA ---
-    package "MS de Busca" {
-        interface "API REST" as API_Search
-        file "Search_DTO" as SearchDTO
-        component "Search_Controller" as SearchC
-        component "Search_Service" as SearchS
-        file "Search_Model" as SearchModel
-        component "Search_Repository" as SearchR
-        component "Search_DAO" as SearchDAO
-        interface "TCP/IP" as TCP_Search
-        database "DB_Search\n(OpenSearch/Elastic)" as DB_Search
-
-        API_Search -down- SearchC : "Fornece"
-        SearchC -left-> SearchDTO : "Manipula"
-        SearchC --> SearchS
-        SearchS -left-> SearchModel : "Regras"
-        SearchS --> SearchR
-        SearchR --> SearchDAO
-        SearchDAO --> TCP_Search
-        TCP_Search -down- DB_Search
-    }
+    component "Admin Panel\nReact Admin" as ADMIN
 }
 
-' ==========================================
-' ROTEAMENTO DO GATEWAY (Consumindo as APIs)
-' ==========================================
-Gateway ---> API_Cat : "/filmes"
-Gateway ---> API_Sales : "/reservas"
-Gateway ---> API_Auth : "/auth"
-Gateway ---> API_Pay : "/pagamentos"
-Gateway ---> API_Notif : "/notificacoes"
-Gateway ---> API_Search : "/search"
+component "API Gateway\nSpring Cloud Gateway" as GATEWAY
 
-' ==========================================
-' COMUNICAÇÃO INTER-SERVIÇOS (Chamadas horizontais via API)
-' ==========================================
-CatS .right.> API_Sales : "Consulta disponibilidade"
-SalesS .left.> API_Auth : "Valida usuário"
-SalesS .down.> PayAdapter : "Solicita pagamento"
-PayS .down.> NotifW : "Notifica pagamento"
-SearchS .up.> API_Cat : "Sincroniza catálogo"
+WEB --> GATEWAY
+MOBILE --> GATEWAY
+ADMIN --> GATEWAY
 
-note right of CatS
-  Responsabilidades:
-  - Catálogo de filmes
-  - Disponibilidade de sessões
-end note
+' =====================================================
+' BACKEND
+' =====================================================
 
-note right of SalesS
-  - Gerenciar reservas
-  - Regras de negócio de compra
-  - Emissão de eventos para pagamento/notificação
-end note
+package "Backend - Microsserviços" {
 
-note left of PayS
-  - Processamento de pagamentos
-  - Integração com gateway externo
-  - Registro de transações
-end note
+' =====================================================
+' CATÁLOGO
+' =====================================================
 
-note left of NotifS
-  - Enfileira e envia notificações
-  - Retry / Dead-letter
-  - Templates de email
-end note
+package "MS Catálogo" {
 
-note right of SearchS
-  - Busca full-text de filmes
-  - Filtros avançados
-  - Sincronização de índices
-end note
+    interface "REST API" as API_CAT
+
+    component "CatalogController" as CAT_C
+
+    component "CatalogService" as CAT_S
+
+    component "CatalogRepository" as CAT_R
+
+    queue "RabbitMQ" as CAT_Q
+
+    component "CatalogWorker" as CAT_W
+
+    database "CatalogDB\nPostgreSQL" as CAT_DB
+
+    file "CatalogModel" as CAT_MODEL
+
+    API_CAT --> CAT_C
+
+    CAT_C --> CAT_S
+
+    CAT_S --> CAT_R
+
+    CAT_R --> CAT_Q
+
+    CAT_Q --> CAT_W
+
+    CAT_W --> CAT_DB
+
+    CAT_S ..down..> CAT_MODEL
+}
+
+' =====================================================
+' VENDAS
+' =====================================================
+
+package "MS Vendas" {
+
+    interface "REST API" as API_SALES
+
+    component "SalesController" as SALES_C
+
+    component "SalesService" as SALES_S
+
+    component "SalesRepository" as SALES_R
+
+    queue "RabbitMQ" as SALES_Q
+
+    component "SalesWorker" as SALES_W
+
+    database "SalesDB\nPostgreSQL" as SALES_DB
+
+    database "Redis Cache\nSeat Locks" as REDIS
+
+    file "SalesModel" as SALES_MODEL
+
+    API_SALES --> SALES_C
+
+    SALES_C --> SALES_S
+
+    SALES_S --> SALES_R
+
+    SALES_R --> SALES_Q
+
+    SALES_Q --> SALES_W
+
+    SALES_W --> SALES_DB
+
+    SALES_S --> REDIS : locks
+
+    SALES_S ..down..> SALES_MODEL
+}
+
+' =====================================================
+' PAGAMENTOS
+' =====================================================
+
+package "MS Pagamentos" {
+
+    interface "REST API" as API_PAY
+
+    component "PaymentController" as PAY_C
+
+    component "PaymentService" as PAY_S
+
+    component "PaymentRepository" as PAY_R
+
+    queue "RabbitMQ" as PAY_Q
+
+    component "PaymentWorker" as PAY_W
+
+    database "PaymentDB\nPostgreSQL" as PAY_DB
+
+    component "Stripe / MercadoPago" as EXT_PAY
+
+    file "PaymentModel" as PAY_MODEL
+
+    API_PAY --> PAY_C
+
+    PAY_C --> PAY_S
+
+    PAY_S --> PAY_R
+
+    PAY_R --> PAY_Q
+
+    PAY_Q --> PAY_W
+
+    PAY_W --> PAY_DB
+
+    PAY_S --> EXT_PAY
+
+    PAY_S ..down..> PAY_MODEL
+}
+
+' =====================================================
+' NOTIFICAÇÕES
+' =====================================================
+
+package "MS Notificações" {
+
+    interface "REST API" as API_NOT
+
+    component "NotificationController" as NOT_C
+
+    component "NotificationService" as NOT_S
+
+    component "NotificationRepository" as NOT_R
+
+    queue "RabbitMQ" as NOT_Q
+
+    component "EmailWorker" as NOT_W
+
+    database "NotificationDB\nPostgreSQL" as NOT_DB
+
+    component "SMTP Client\nAWS SES" as SMTP
+
+    file "NotificationModel" as NOT_MODEL
+
+    API_NOT --> NOT_C
+
+    NOT_C --> NOT_S
+
+    NOT_S --> NOT_R
+
+    NOT_R --> NOT_Q
+
+    NOT_Q --> NOT_W
+
+    NOT_W --> NOT_DB
+
+    NOT_S --> SMTP
+
+    NOT_S ..down..> NOT_MODEL
+}
+
+' =====================================================
+' VALIDAÇÃO
+' =====================================================
+
+package "MS Validação" {
+
+    interface "REST API" as API_VAL
+
+    component "ValidationController" as VAL_C
+
+    component "ValidationService" as VAL_S
+
+    component "ValidationRepository" as VAL_R
+
+    queue "RabbitMQ" as VAL_Q
+
+    component "ValidationWorker" as VAL_W
+
+    database "ValidationDB\nPostgreSQL" as VAL_DB
+
+    file "ValidationModel" as VAL_MODEL
+
+    API_VAL --> VAL_C
+
+    VAL_C --> VAL_S
+
+    VAL_S --> VAL_R
+
+    VAL_R --> VAL_Q
+
+    VAL_Q --> VAL_W
+
+    VAL_W --> VAL_DB
+
+    VAL_S ..down..> VAL_MODEL
+}
+
+' =====================================================
+' RELATÓRIOS
+' =====================================================
+
+package "MS Relatórios" {
+
+    interface "REST API" as API_REL
+
+    component "ReportController" as REL_C
+
+    component "ReportService" as REL_S
+
+    component "ReportRepository" as REL_R
+
+    queue "RabbitMQ" as REL_Q
+
+    component "AnalyticsWorker" as REL_W
+
+    database "ReportsDB\nMongoDB" as REL_DB
+
+    file "ReportModel" as REL_MODEL
+
+    API_REL --> REL_C
+
+    REL_C --> REL_S
+
+    REL_S --> REL_R
+
+    REL_R --> REL_Q
+
+    REL_Q --> REL_W
+
+    REL_W --> REL_DB
+
+    REL_S ..down..> REL_MODEL
+}
+
+}
+
+' =====================================================
+' API GATEWAY ROUTES
+' =====================================================
+
+GATEWAY ---> API_CAT : /catalogo
+
+GATEWAY ---> API_SALES : /vendas
+
+GATEWAY ---> API_PAY : /pagamentos
+
+GATEWAY ---> API_NOT : /notificacoes
+
+GATEWAY ---> API_VAL : /validacao
+
+GATEWAY ---> API_REL : /relatorios
+
+' =====================================================
+' COMUNICAÇÃO ENTRE SERVIÇOS
+' =====================================================
+
+SALES_S ..> API_PAY : processa pagamento
+
+VAL_S ..> API_SALES : valida ingresso
+
+REL_S ..> API_SALES : consulta vendas
+
+REL_S ..> API_CAT : consulta sessões
 
 @enduml

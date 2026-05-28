@@ -1,0 +1,89 @@
+@startuml
+title Diagrama de Comunicação - Fluxo Completo CineFlow
+
+actor Cliente
+actor "Funcionário\nValidador" as Validador
+actor "Gerente de Cinema" as Gerente
+participant "Frontend\n(Web/Mobile)" as Front
+participant "Serviço de\nCatálogo" as Catalogo
+participant "Serviço de\nVendas" as Vendas
+participant "Gateway de\nPagamento" as Gateway
+participant "Fila SQS" as SQS
+participant "Serviço de\nNotificação" as Notificacao
+database "Banco Catálogo" as DBC
+database "Banco Vendas" as DBV
+
+' =========================
+' FLUXO CLIENTE
+' =========================
+
+Cliente -> Front : 1: acessar catálogo
+Front -> Catalogo : 1.1: buscar filmes/sessões
+Catalogo -> DBC : 1.1.1: consultar catálogo
+DBC --> Catalogo : 1.1.2: retornar dados
+Catalogo --> Front : 1.2: filmes disponíveis
+Front --> Cliente : 1.3: exibir catálogo
+
+Cliente -> Front : 2: selecionar sessão
+Front -> Catalogo : 2.1: obter mapa da sala
+Catalogo -> DBC : 2.1.1: consultar assentos
+DBC --> Catalogo : 2.1.2: retornar assentos
+Catalogo --> Front : 2.2: mapa atualizado
+
+Cliente -> Front : 3: selecionar assento
+Front -> Vendas : 3.1: bloquear assento
+Vendas -> DBV : 3.1.1: criar reserva temporária
+DBV --> Vendas : 3.1.2: reserva criada
+Vendas --> Front : 3.2: assento bloqueado
+
+Cliente -> Front : 4: realizar pagamento
+Front -> Vendas : 4.1: enviar checkout
+Vendas -> Gateway : 4.1.1: processar pagamento
+
+Gateway --> Vendas : 4.1.2: pagamento aprovado
+
+Vendas -> DBV : 4.2: gerar ingresso
+DBV --> Vendas : 4.2.1: ingresso criado
+
+Vendas -> SQS : 4.3: publicar evento de envio
+
+SQS -> Notificacao : 4.3.1: consumir evento
+Notificacao --> Cliente : 4.3.2: enviar e-mail com QR Code
+
+Vendas --> Front : 4.4: confirmar compra
+Front --> Cliente : 4.5: exibir ingresso
+
+' =========================
+' VALIDAÇÃO DO INGRESSO
+' =========================
+
+Cliente -> Validador : 5: apresentar QR Code
+Validador -> Vendas : 5.1: validar ingresso
+Vendas -> DBV : 5.1.1: verificar status
+DBV --> Vendas : 5.1.2: ingresso válido
+
+Vendas -> DBV : 5.2: atualizar status para UTILIZADO
+DBV --> Vendas : 5.2.1: status atualizado
+
+Vendas --> Validador : 5.3: acesso liberado
+
+' =========================
+' GERENCIAMENTO
+' =========================
+
+Gerente -> Front : 6: cadastrar filme
+Front -> Catalogo : 6.1: salvar filme
+Catalogo -> DBC : 6.1.1: persistir filme
+
+Gerente -> Front : 7: configurar sessão
+Front -> Catalogo : 7.1: criar sessão
+Catalogo -> DBC : 7.1.1: persistir sessão
+
+Gerente -> Front : 8: emitir relatório
+Front -> Vendas : 8.1: solicitar relatório
+Vendas -> DBV : 8.1.1: consultar vendas
+DBV --> Vendas : 8.1.2: dados consolidados
+Vendas --> Front : 8.2: relatório gerado
+Front --> Gerente : 8.3: exibir relatório
+
+@enduml

@@ -1,0 +1,141 @@
+@startuml
+skinparam state {
+    BackgroundColor #E3F2FD
+    BorderColor #1565C0
+    FontName Arial
+}
+
+skinparam ArrowColor #0D47A1
+skinparam shadowing false
+
+title Diagrama de Estados - CineFlow\nCompra e Validação de Ingressos
+
+[*] --> CatalogoDisponivel : acesso ao sistema
+
+state "Catálogo disponível" as CatalogoDisponivel
+CatalogoDisponivel : filmesCarregados = true
+CatalogoDisponivel : sessoesDisponiveis = true
+
+' =====================================================
+' ESCOLHA DE SESSÃO
+' =====================================================
+
+state VerificarSessao <<choice>>
+
+CatalogoDisponivel --> VerificarSessao : selecionar sessão
+
+VerificarSessao --> SessaoSelecionada : sessao_disponivel
+VerificarSessao --> CompraCancelada : sessao_indisponivel
+
+state "Sessão selecionada" as SessaoSelecionada
+SessaoSelecionada : assentosSelecionados = false
+
+' =====================================================
+' RESERVA TEMPORÁRIA
+' =====================================================
+
+SessaoSelecionada --> ReservaTemporaria : selecionar assentos
+
+state "Reserva temporária" as ReservaTemporaria
+ReservaTemporaria : lockAssentos = true
+ReservaTemporaria : tempoLimite = 10min
+
+ReservaTemporaria --> PagamentoPendente : reserva criada
+
+' =====================================================
+' PAGAMENTO
+' =====================================================
+
+state "Pagamento pendente" as PagamentoPendente
+PagamentoPendente : pagamentoConfirmado = false
+
+state VerificacaoPagamento <<choice>>
+
+PagamentoPendente --> VerificacaoPagamento : retorno gateway
+
+VerificacaoPagamento --> IngressoEmitido : pagamento_aprovado
+VerificacaoPagamento --> PagamentoRecusado : pagamento_recusado
+VerificacaoPagamento --> ReservaExpirada : tempo_expirado
+
+' =====================================================
+' PAGAMENTO RECUSADO
+' =====================================================
+
+state "Pagamento recusado" as PagamentoRecusado
+PagamentoRecusado : motivo = "saldo insuficiente"
+
+PagamentoRecusado --> PagamentoPendente : tentar novamente
+PagamentoRecusado --> CompraCancelada : cancelar compra
+
+' =====================================================
+' RESERVA EXPIRADA
+' =====================================================
+
+state "Reserva expirada" as ReservaExpirada
+ReservaExpirada : assentosLiberados = true
+
+ReservaExpirada --> CompraCancelada : encerrar processo
+
+' =====================================================
+' INGRESSO
+' =====================================================
+
+state "Ingresso emitido" as IngressoEmitido
+IngressoEmitido : qrCodeGerado = true
+IngressoEmitido : notificacaoEnviada = true
+
+IngressoEmitido --> AguardandoValidacao : cliente chega ao cinema
+
+state "Aguardando validação" as AguardandoValidacao
+AguardandoValidacao : status = "aguardando leitura"
+
+' =====================================================
+' VALIDAÇÃO
+' =====================================================
+
+state VerificacaoIngresso <<choice>>
+
+AguardandoValidacao --> VerificacaoIngresso : escanear QR Code
+
+VerificacaoIngresso --> EntradaLiberada : qr_valido
+VerificacaoIngresso --> EntradaNegada : qr_invalido
+VerificacaoIngresso --> EntradaNegada : ingresso_duplicado
+
+' =====================================================
+' ENTRADA LIBERADA
+' =====================================================
+
+state "Entrada liberada" as EntradaLiberada
+EntradaLiberada : acessoSala = true
+EntradaLiberada : ingressoUtilizado = true
+
+EntradaLiberada --> SessaoFinalizada : sessão encerrada
+
+' =====================================================
+' ENTRADA NEGADA
+' =====================================================
+
+state "Entrada negada" as EntradaNegada
+EntradaNegada : acessoSala = false
+
+EntradaNegada --> [*]
+
+' =====================================================
+' SESSÃO FINALIZADA
+' =====================================================
+
+state "Sessão finalizada" as SessaoFinalizada
+SessaoFinalizada : processoConcluido = true
+
+SessaoFinalizada --> [*]
+
+' =====================================================
+' COMPRA CANCELADA
+' =====================================================
+
+state "Compra cancelada" as CompraCancelada
+CompraCancelada : processoAbortado = true
+
+CompraCancelada --> [*]
+
+@enduml

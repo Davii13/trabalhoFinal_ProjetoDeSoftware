@@ -1,0 +1,278 @@
+@startuml
+title CineFlow - Diagrama de Implantação\n(AWS + Microsserviços + Deploy Cloud)
+
+left to right direction
+
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 70
+skinparam ranksep 80
+
+' =====================================================
+' ESTILIZAÇÃO
+' =====================================================
+
+skinparam node {
+    BackgroundColor #F8F9FA
+    BorderColor #495057
+    FontStyle bold
+}
+
+skinparam database {
+    BackgroundColor #E3F2FD
+    BorderColor #1565C0
+}
+
+skinparam queue {
+    BackgroundColor #FFF3E0
+    BorderColor #EF6C00
+}
+
+skinparam artifact {
+    BackgroundColor #E8F5E9
+    BorderColor #2E7D32
+}
+
+skinparam package {
+    BackgroundColor #FAFAFA
+    BorderColor #6C757D
+}
+
+' =====================================================
+' CLIENTES
+' =====================================================
+
+package "Clientes" {
+
+    node "Navegador Web" as BROWSER
+
+    node "Aplicativo Mobile\n(Android / iOS)" as MOBILE
+}
+
+' =====================================================
+' FRONTEND
+' =====================================================
+
+package "Frontend Deploy" {
+
+    node "Vercel\nFrontend React SPA" as VERCEL
+
+    artifact "https://cineflow.vercel.app" as URL_FRONT
+
+    node "Render\nPainel Administrativo" as RENDER
+
+    artifact "https://admin-cineflow.onrender.com" as URL_ADMIN
+}
+
+BROWSER --> VERCEL : HTTPS
+
+MOBILE --> VERCEL : HTTPS REST
+
+BROWSER --> RENDER : HTTPS
+
+' =====================================================
+' AWS
+' =====================================================
+
+package "AWS Infrastructure" {
+
+' =====================================================
+' API GATEWAY
+' =====================================================
+
+    node "Elastic Load Balancer" as ELB
+
+    node "EC2\nAPI Gateway\nSpring Cloud Gateway" as APIGW
+
+    ELB --> APIGW : HTTPS
+
+' =====================================================
+' MICROSSERVIÇOS
+' =====================================================
+
+    package "Backend - Microsserviços Spring Boot" {
+
+        node "EC2\nMS Catálogo" as MS_CAT
+
+        node "EC2\nMS Vendas" as MS_SALES
+
+        node "EC2\nMS Pagamentos" as MS_PAY
+
+        node "EC2\nMS Notificações" as MS_NOT
+
+        node "EC2\nMS Validação" as MS_VAL
+
+        node "EC2\nMS Relatórios" as MS_REL
+    }
+
+' =====================================================
+' MESSAGE BROKER
+' =====================================================
+
+    queue "RabbitMQ\nAWS MQ" as RABBIT
+
+' =====================================================
+' WORKERS
+' =====================================================
+
+    package "Workers Assíncronos" {
+
+        node "Email Worker" as WORKER_EMAIL
+
+        node "Seat Lock Worker" as WORKER_LOCK
+
+        node "Analytics Worker" as WORKER_REL
+    }
+
+' =====================================================
+' CACHE
+' =====================================================
+
+    database "Redis\nAWS ElastiCache" as REDIS
+
+' =====================================================
+' BANCOS
+' =====================================================
+
+    package "Persistência" {
+
+        database "CatalogDB\nPostgreSQL RDS" as DB_CAT
+
+        database "SalesDB\nPostgreSQL RDS" as DB_SALES
+
+        database "PaymentDB\nPostgreSQL RDS" as DB_PAY
+
+        database "NotificationDB\nPostgreSQL RDS" as DB_NOT
+
+        database "ValidationDB\nPostgreSQL RDS" as DB_VAL
+
+        database "ReportsDB\nMongoDB Atlas" as DB_REL
+    }
+
+' =====================================================
+' OBSERVABILIDADE
+' =====================================================
+
+    package "Observabilidade" {
+
+        node "Elastic Stack\nELK" as ELK
+
+        node "Prometheus" as PROM
+
+        node "Grafana" as GRAF
+    }
+}
+
+' =====================================================
+' FRONT -> BACK
+' =====================================================
+
+VERCEL --> ELB : HTTPS REST
+
+RENDER --> ELB : HTTPS REST
+
+' =====================================================
+' API GATEWAY -> SERVIÇOS
+' =====================================================
+
+APIGW --> MS_CAT : REST HTTP
+
+APIGW --> MS_SALES : REST HTTP
+
+APIGW --> MS_PAY : REST HTTP
+
+APIGW --> MS_NOT : REST HTTP
+
+APIGW --> MS_VAL : REST HTTP
+
+APIGW --> MS_REL : REST HTTP
+
+' =====================================================
+' COMUNICAÇÃO ENTRE SERVIÇOS
+' =====================================================
+
+MS_SALES --> MS_PAY : REST HTTP
+
+MS_VAL --> MS_SALES : REST HTTP
+
+MS_REL --> MS_SALES : REST HTTP
+
+MS_REL --> MS_CAT : REST HTTP
+
+' =====================================================
+' BROKER
+' =====================================================
+
+MS_SALES --> RABBIT : AMQP
+
+MS_PAY --> RABBIT : AMQP
+
+MS_NOT --> RABBIT : AMQP
+
+MS_REL --> RABBIT : AMQP
+
+' =====================================================
+' WORKERS
+' =====================================================
+
+RABBIT --> WORKER_EMAIL : AMQP
+
+RABBIT --> WORKER_LOCK : AMQP
+
+RABBIT --> WORKER_REL : AMQP
+
+' =====================================================
+' CACHE REDIS
+' =====================================================
+
+MS_SALES --> REDIS : TCP/IP
+
+WORKER_LOCK --> REDIS : TCP/IP
+
+' =====================================================
+' DATABASES
+' =====================================================
+
+MS_CAT --> DB_CAT : TCP/IP
+
+MS_SALES --> DB_SALES : TCP/IP
+
+MS_PAY --> DB_PAY : TCP/IP
+
+MS_NOT --> DB_NOT : TCP/IP
+
+MS_VAL --> DB_VAL : TCP/IP
+
+MS_REL --> DB_REL : TCP/IP
+
+' =====================================================
+' OBSERVABILIDADE
+' =====================================================
+
+MS_CAT --> ELK : LOG TCP
+
+MS_SALES --> ELK : LOG TCP
+
+MS_PAY --> ELK : LOG TCP
+
+MS_NOT --> ELK : LOG TCP
+
+MS_VAL --> ELK : LOG TCP
+
+MS_REL --> ELK : LOG TCP
+
+MS_CAT --> PROM : HTTP Metrics
+
+MS_SALES --> PROM : HTTP Metrics
+
+MS_PAY --> PROM : HTTP Metrics
+
+MS_NOT --> PROM : HTTP Metrics
+
+MS_VAL --> PROM : HTTP Metrics
+
+MS_REL --> PROM : HTTP Metrics
+
+PROM --> GRAF : HTTP
+
+@enduml

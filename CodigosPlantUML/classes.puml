@@ -1,68 +1,157 @@
 @startuml
-title Diagrama de Classes - Domínio CineFlow
-class Usuario {
-  +id: UUID
-  +nome: String
-  +email: String
-  +senhaHash: String
-  +autenticar()
+skinparam classAttributeIconSize 0
+
+' =========================
+' ENUMS
+' =========================
+
+enum StatusIngresso {
+  PENDENTE
+  EXPIRADO
+  PAGO_VALIDO
+  UTILIZADO
+  REEMBOLSADO
 }
+
+enum StatusPagamento {
+  PENDENTE
+  APROVADO
+  RECUSADO
+}
+
+' =========================
+' CLASSES
+' =========================
 
 class Cliente {
-  +telefone: String
+  - id: Long
+  - nome: String
+  - email: String
+  - cpf: String
 }
 
-class Administrador
+class FuncionarioValidador {
+  - id: Long
+  - nome: String
+  - matricula: String
+}
+
+class GerenteCinema {
+  - id: Long
+  - nome: String
+  - matricula: String
+}
 
 class Filme {
-  +id: UUID
-  +titulo: String
-  +descricao: String
-  +duracaoMin: Int
+  - id: Long
+  - titulo: String
+  - genero: String
+  - classificacao: Integer
+  - duracao: Integer
 }
 
 class Sala {
-  +id: UUID
-  +nome: String
-  +capacidade: Int
-}
-
-class Sessao {
-  +id: UUID
-  +inicio: DateTime
-  +preco: Decimal
-  +obterAssentosDisponiveis()
+  - id: Long
+  - nome: String
+  - capacidade: Integer
 }
 
 class Assento {
-  +id: UUID
-  +linha: String
-  +numero: String
+  - id: Long
+  - fila: String
+  - numero: Integer
+}
+
+class Sessao {
+  - id: Long
+  - horario: DateTime
+  - preco: Decimal
+  - idioma: String
 }
 
 class Reserva {
-  +id: UUID
-  +dataCriacao: DateTime
-  +status: String
-  +valor: Decimal
-  +confirmar()
-  +cancelar()
+  - id: Long
+  - dataReserva: DateTime
+  - expiracao: DateTime
+}
+
+class Ingresso {
+  - id: Long
+  - qrCode: String
+  - dataCompra: DateTime
+  - status: StatusIngresso
 }
 
 class Pagamento {
-  +id: UUID
-  +metodo: String
-  +status: String
-  +valor: Decimal
+  - id: Long
+  - valor: Decimal
+  - status: StatusPagamento
+  - dataPagamento: DateTime
 }
 
-Usuario <|-- Cliente
-Usuario <|-- Administrador
-Filme "1" <-- "0..*" Sessao
-Sala "1" <-- "0..*" Sessao
-Sessao "1" <-- "0..*" Assento
-Sessao "1" <-- "0..*" Reserva
-Reserva "1" --> "1..*" Assento
-Reserva "1" --> "1" Pagamento
+class GatewayPagamento {
+  - nome: String
+  - urlAPI: String
+}
+
+class Notificacao {
+  - id: Long
+  - mensagem: String
+  - dataEnvio: DateTime
+}
+
+class Relatorio {
+  - id: Long
+  - tipo: String
+  - dataGeracao: DateTime
+}
+
+' =========================
+' RELACIONAMENTOS
+' =========================
+
+' Cliente compra ingressos
+Cliente -- "0..*" Ingresso
+
+' Cliente realiza reservas
+Cliente -- "0..*" Reserva
+
+' Filme possui sessões
+Filme -- "1..*" Sessao
+
+' Sala contém assentos (composição)
+Sala *-- "1..*" Assento
+
+' Sala possui sessões
+Sala -- "0..*" Sessao
+
+' Sessão gera ingressos
+Sessao -- "0..*" Ingresso
+
+' Sessão possui reservas
+Sessao -- "0..*" Reserva
+
+' Reserva envolve assento
+Reserva -- "1" Assento
+
+' Ingresso pertence a um assento
+Ingresso -- "1" Assento
+
+' Pagamento pertence ao ingresso
+Ingresso *-- "1" Pagamento
+
+' Integração com gateway
+Pagamento --> GatewayPagamento
+
+' Notificação relacionada ao ingresso
+Ingresso o-- "0..1" Notificacao
+
+' Gerente administra filmes e sessões
+GerenteCinema -- Filme
+GerenteCinema -- Sessao
+GerenteCinema -- Relatorio
+
+' Funcionário valida ingressos
+FuncionarioValidador -- Ingresso
 
 @enduml
