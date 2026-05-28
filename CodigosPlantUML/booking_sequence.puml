@@ -1,0 +1,25 @@
+@startuml
+title Diagrama de Sequência - Reserva e Pagamento (Detallhado)
+actor Cliente
+participant App
+participant APIGW
+participant Sales
+participant Payment
+participant Broker
+database SalesDB
+
+Cliente -> App: Seleciona sessão e assentos
+App -> APIGW: POST /reservas
+APIGW -> Sales: Criar reserva (pendente)
+Sales -> SalesDB: Gravar reserva
+Sales -> Broker: Publish TicketsReserved
+APIGW -> Payment: Solicitar pagamento
+Payment --> APIGW: Pagamento aprovado
+APIGW -> Sales: Confirmar reserva
+Sales -> SalesDB: Atualizar status
+Sales -> Broker: Publish ReservationConfirmed
+Broker -> Notification : notify
+APIGW --> App: Retorna confirmação + e-ticket
+App --> Cliente: Exibe ingresso
+
+@enduml

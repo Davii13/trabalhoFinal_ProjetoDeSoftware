@@ -1,0 +1,258 @@
+@startuml
+title CineFlow - Diagrama de Comunicação - Fluxo de Cancelamento de Reserva
+
+' Atores e Sistemas
+actor Cliente as Cliente
+participant "Web/Mobile\nUI" as UI
+participant "API Gateway" as APIGw
+participant "Sales\nService" as SalesSvc
+participant "Payment\nService" as PaymentSvc
+participant "Message Broker\n(SQS/RabbitMQ)" as Broker
+participant "Notification\nService" as NotifSvc
+participant "External\nPayment GW\n(Stripe)" as ExtPayGW
+participant "Email\nService\n(SES)" as EmailSvc
+participant "Database\n(Sales DB)" as SalesDB
+
+' ============================================
+' FASE 1: INICIAÇÃO DO CANCELAMENTO
+' ============================================
+autonumber 1 1 "1."
+Cliente -> UI: Clica em "Cancelar Reserva"
+UI -> APIGw: DELETE /vendas/reservas/{reservaId}\n(JWT, reservaId)
+
+' ============================================
+' FASE 2: VERIFICAÇÃO DE ELEGIBILIDADE
+' ============================================
+autonumber 1 3 "3."
+APIGw -> SalesSvc: Encaminha requisição autenticada
+SalesSvc -> SalesDB: SELECT reserva WHERE id = {reservaId}
+SalesDB -> SalesSvc: Retorna {reservaId, status, dataSessao, dataCriacao}
+
+SalesSvc -> SalesSvc: Validações:
+note right of SalesSvc
+  Regras de Cancelamento:
+  - Status deve ser CONFIRMADA ou PENDENTE
+  - Sessão não pode estar iniciada
+  - Deve ter pelo menos 2h antes do início
+  - Cliente não pode ter pendências
+end note
+
+alt Validação PASSOU
+  SalesSvc -> SalesSvc: Continua com cancelamento
+else Validação FALHOU
+  SalesSvc -> APIGw: HTTP 400 / 422\n{erro: "Cancelamento não permitido"}
+  APIGw -> UI: Erro
+  UI -> Cliente: Exibe mensagem de erro
+  note left of UI
+    Possíveis erros:
+    - Sessão iniciada
+    - Menos de 2h antes
+    - Status inválido
+  end note
+  UI -> UI: FIM DO FLUXO (Cancelamento Rejeitado)
+end
+
+' ============================================
+' FASE 3: PROCESSAMENTO DO REEMBOLSO
+' ============================================
+autonumber 1 11 "11."
+SalesSvc -> SalesDB: BEGIN TRANSACTION
+
+' Se existir pagamento confirmado
+SalesSvc -> SalesDB: SELECT transacao WHERE reservaId = {reservaId}
+SalesDB -> SalesSvc: Retorna {transacaoId, amount, status}
+
+SalesSvc -> PaymentSvc: REFUND REQUEST\n{transacaoId, amount, motivo: 'user_cancellation'}
+
+PaymentSvc -> ExtPayGW: POST /refunds\n{originalTransactionId, amount, reason}
+ExtPayGW -> ExtPayGW: Processa reembolso (PCI-DSS)
+ExtPayGW -> PaymentSvc: Resposta {refundId, status: 'succeeded', timestamp}
+
+PaymentSvc -> SalesDB: INSERT INTO refunds\n{transacaoId, refundId, amount, status: PROCESSADO}
+PaymentSvc -> SalesSvc: Confirmação de reembolso
+
+' ============================================
+' FASE 4: ATUALIZAÇÃO DO ESTADO DA RESERVA
+' ============================================
+autonumber 1 19 "19."
+SalesSvc -> SalesDB: UPDATE reservas SET status = 'CANCELADA' WHERE id = {reservaId}
+SalesSvc -> SalesDB: UPDATE ingressos SET status = 'CANCELADO' WHERE reservaId = {reservaId}
+SalesSvc -> SalesDB: UPDATE ingressos SET disponivel = TRUE (libera assentos)
+
+SalesDB -> SalesSvc: Confirmação de updates
+SalesSvc -> SalesDB: COMMIT TRANSACTION
+
+note right of SalesSvc
+  Estado Final:
+  - Reserva: CANCELADA
+  - Ingressos: CANCELADOS
+  - Assentos: LIBERADOS
+  - Reembolso: PROCESSADO
+end note
+
+' ============================================
+' FASE 5: PUBLICAÇÃO DE EVENTOS
+' ============================================
+autonumber 1 25 "25."
+SalesSvc -> Broker: PUBLISH evento 'ReservaCancelada'\n{reservaId, usuarioId, amount, refundId}
+
+Broker -> Broker: Enfileira mensagem (durável)
+
+Broker -> NotifSvc: DELIVER evento 'ReservaCancelada'
+Broker -> SalesSvc: ACK (mensagem recebida)
+
+' Outros serviços podem consumir
+note left of Broker
+  Outros serviços interessados:
+  - Analytics (cancelamento)
+  - CRM (churn analysis)
+  - Reporting
+end note
+
+' ============================================
+' FASE 6: LIBERAR ASSENTOS (Catalog Service)
+' ============================================
+autonumber 1 30 "30."
+Broker -> SalesSvc: Consome evento (auto-cancel após timeout)\nOu CatalogService consome para atualizar cache
+
+SalesSvc -> SalesSvc: Invoca callback internamente
+SalesSvc -> SalesSvc: Libera capacidade da sessão (cache invalidation)
+
+note right of SalesSvc
+  Cache invalidation:
+  - Limpa cache de disponibilidade
+  - Notifica Catalog Service
+  - Atualiza Redis
+end note
+
+' ============================================
+' FASE 7: NOTIFICAÇÃO DE CANCELAMENTO
+' ============================================
+autonumber 1 33 "33."
+NotifSvc -> NotifSvc: Consome evento 'ReservaCancelada'
+NotifSvc -> NotifSvc: Renderiza template de email\n(confirmação de cancelamento + detalhes de reembolso)
+
+NotifSvc -> EmailSvc: SMTP SEND\nTo: usuario@email.com\nSubject: "Cancelamento Confirmado - Reembolso Processado"
+
+EmailSvc -> EmailSvc: Enfileira envio (SES)
+EmailSvc -> EmailSvc: Tentativa de entrega (Retry: 3 vezes)
+EmailSvc -> NotifSvc: Acknowledgment {status: 'sent', messageId}
+
+NotifSvc -> SalesDB: INSERT INTO notificacoes\n{usuarioId, tipoNotificacao: 'CANCELAMENTO', status: 'ENVIADO'}
+
+' ============================================
+' FASE 8: RESPOSTA AO CLIENTE
+' ============================================
+autonumber 1 41 "41."
+SalesSvc -> APIGw: HTTP 200 OK\n{reservaId, status: 'CANCELADA', refundId, estimativaReembolso: '48h'}
+APIGw -> UI: Response
+
+UI -> Cliente: Exibe "Cancelamento confirmado!"
+UI -> Cliente: "Reembolso será processado em 2-3 dias úteis"
+UI -> Cliente: "Assentos foram liberados"
+
+Cliente -> Cliente: Recebe email de confirmação
+
+note right of Cliente
+  Cliente vê:
+  - Confirmação de cancelamento
+  - ID do reembolso
+  - Prazo estimado
+  - Assentos liberados para outros clientes
+end note
+
+' ============================================
+' FASE 9: PROCESSAMENTO ASSÍNCRONO (Background)
+' ============================================
+autonumber 1 48 "48."
+
+note over SalesSvc, SalesDB
+  **BACKGROUND JOBS (Batch Processing)**
+end note
+
+SalesSvc -> SalesDB: Scheduled Job (a cada 30 min):\nSELECT refunds WHERE status = 'PROCESSADO'\nAND confirmed_timestamp > NOW() - 1 DAY
+
+SalesDB -> SalesSvc: Retorna lista de reembolsos recentes
+
+par Monitoramento de Reembolsos
+  SalesSvc -> ExtPayGW: GET /refunds/{refundId}/status\n(Verificar status do banco)
+  ExtPayGW -> SalesSvc: {status: 'completed', timestamp}
+  SalesSvc -> SalesDB: UPDATE refunds SET status = 'COMPLETADO'
+end
+
+' ============================================
+' FASE 10: LIMPEZA E AUDITORIA
+' ============================================
+autonumber 1 53 "53."
+SalesSvc -> SalesDB: Log de auditoria\nINSERT INTO audit_log\n{usuario, acao: 'CANCELAMENTO', reservaId, timestamp, ip}
+
+note right of SalesSvc
+  Auditoria e Compliance:
+  - Rastreabilidade completa
+  - GDPR compliance (right to cancel)
+  - Regulatory reporting
+  - Fraud detection
+end note
+
+' ============================================
+' FLUXO ALTERNATIVO: ERRO NO REEMBOLSO
+' ============================================
+
+rect rgb(200, 100, 100)
+  note over PaymentSvc, ExtPayGW
+    **ALTERNATIVA: FALHA NO REEMBOLSO**
+  end note
+
+  PaymentSvc -> ExtPayGW: POST /refunds (falha de rede / timeout)
+  ExtPayGW -> PaymentSvc: TIMEOUT / ERROR
+
+  PaymentSvc -> PaymentSvc: Retry com backoff exponencial\n(1s, 2s, 4s, 8s, 16s...)
+
+  alt Retry bem-sucedido
+    PaymentSvc -> SalesDB: UPDATE refunds SET status = 'PROCESSADO'
+  else Retry falhou após limite
+    PaymentSvc -> SalesDB: UPDATE refunds SET status = 'ERRO_PROCESSAMENTO'
+    PaymentSvc -> Broker: PUBLISH evento 'RefundFailed'\n{reservaId, motivo}
+    Broker -> NotifSvc: DELIVER
+    NotifSvc -> EmailSvc: SEND "Seu reembolso está em revisão"
+
+    note left of PaymentSvc
+      Admin recebe alerta para:
+      - Investigar falha
+      - Processar reembolso manual
+      - Contato com cliente
+    end note
+  end
+end
+
+' ============================================
+' RESUMO E NOTAS FINAIS
+' ============================================
+
+note bottom of SalesSvc
+  **PADRÕES UTILIZADOS:**
+  - Two-Phase Commit (2PC) para transações distribuídas
+  - Saga Distribuída com compensating transactions
+  - Event Sourcing para auditoria
+  - Idempotência (retry-safe operations)
+  - Circuit Breaker para chamadas externas
+  - Retry com backoff exponencial
+end note
+
+note bottom of Broker
+  **GARANTIAS DE ENTREGA:**
+  - At-least-once delivery
+  - Idempotent consumer (deduplicação)
+  - Dead-letter queue para falhas
+  - Message TTL (time-to-live)
+end note
+
+note bottom of NotifSvc
+  **COMUNICAÇÃO:**
+  - Email confirmação em português
+  - Detalhes do reembolso
+  - Timeline estimada
+  - Contato de suporte
+end note
+
+@enduml

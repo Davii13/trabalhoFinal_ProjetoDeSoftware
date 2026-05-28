@@ -1,0 +1,254 @@
+@startuml
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+skinparam pad 20
+
+title CineFlow - Diagrama de Implantação (Infraestrutura e Serviços em Nuvem)
+
+' ============================================
+' CLIENTES
+' ============================================
+cloud "Cliente" {
+  node "Desktop\nWeb Browser" as DesktopClient {
+    [Browser] as Browser
+  }
+  node "Smartphone" as MobileClient {
+    [App Mobile\n(iOS/Android)] as MobileApp
+  }
+}
+
+' ============================================
+' AWS - CAMADA PÚBLICA (INTERNET-FACING)
+' ============================================
+cloud "AWS Cloud" {
+  ' Região
+  node "AWS Region\n(us-east-1)" as Region {
+
+    ' ---- CAMADA DE BORDA E CDN ----
+    node "Edge / CDN" {
+      [CloudFront\n(CDN / Cache de Assets)] as CDN
+    }
+
+    ' ---- CAMADA PÚBLICA (VPC Public Subnet) ----
+    node "VPC - Public Subnet" {
+      [Route 53\n(DNS / Load Balancing)] as Route53
+      [ALB\n(Application Load Balancer)] as ALB
+      [API Gateway\n(REST API / Rate Limiting)] as APIGw
+    }
+
+    ' ---- CAMADA PRIVADA (VPC Private Subnets) ----
+    node "VPC - Private Subnet (AZ1)" {
+      ' Cluster de Containers
+      node "ECS Cluster (Fargate)" as ECSCluster {
+        component "Task - Catalog Service\n(Docker Container)" as TaskCatalog {
+          [CatalogServiceContainer\n:8080] as CatalogContainer
+        }
+        component "Task - Sales Service\n(Docker Container)" as TaskSales {
+          [SalesServiceContainer\n:8080] as SalesContainer
+        }
+        component "Task - Auth Service\n(Docker Container)" as TaskAuth {
+          [AuthServiceContainer\n:8080] as AuthContainer
+        }
+        component "Task - Payment Service\n(Docker Container)" as TaskPayment {
+          [PaymentServiceContainer\n:8080] as PaymentContainer
+        }
+        component "Task - Notification Service\n(Docker Container)" as TaskNotif {
+          [NotificationServiceContainer\n:8080] as NotifContainer
+        }
+        component "Task - Search Service\n(Docker Container)" as TaskSearch {
+          [SearchServiceContainer\n:8080] as SearchContainer
+        }
+      }
+
+      ' Broker de Mensagens
+      node "Message Queue Service" {
+        [Amazon SQS\n(Fila de Mensagens)] as SQS
+        [RabbitMQ\n(Self-Managed / EC2 Instance)] as RabbitMQ
+      }
+    }
+
+    node "VPC - Private Subnet (AZ2)" {
+      ' Replicação de Containers
+      node "ECS Cluster (Fargate) - AZ2" as ECSCluster2 {
+        component "Task - Catalog Service Replica" as TaskCatalogR {
+          [CatalogServiceContainer Replica] as CatalogContainerR
+        }
+        component "Task - Sales Service Replica" as TaskSalesR {
+          [SalesServiceContainer Replica] as SalesContainerR
+        }
+      }
+    }
+
+    ' ---- CAMADA DE DADOS E CACHE ----
+    node "VPC - Private Subnet (Data Layer)" {
+      ' Banco de Dados
+      [Amazon RDS (Aurora PostgreSQL)\nDB_Catalogo] as DBCatalog
+      [Amazon RDS (Aurora PostgreSQL)\nDB_Auth] as DBAuth
+      [Amazon RDS (Aurora MySQL)\nDB_Vendas] as DBSales
+      [Amazon RDS (Aurora PostgreSQL)\nDB_Payment] as DBPayment
+
+      ' Cache e Search
+      [ElastiCache (Redis)\nCache Layer] as Redis
+      [OpenSearch Cluster\n(Elasticsearch)\nSearch Index] as OpenSearch
+
+      ' Storage
+      [Amazon S3\n(Static Assets, Backups)] as S3
+    }
+
+    ' ---- CAMADA DE OBSERVABILIDADE ----
+    node "Monitoring & Logging" {
+      [CloudWatch\n(Logs, Metrics, Alarms)] as CloudWatch
+      [X-Ray\n(Distributed Tracing)] as XRay
+      [EventBridge\n(Event Routing)] as EventBridge
+    }
+  }
+}
+
+' ============================================
+' SERVIÇOS EXTERNOS
+' ============================================
+cloud "Third-party Services" {
+  [Payment Gateway\n(Stripe / PayPal / MercadoPago)] as PaymentGW
+  [Email Service\n(AWS SES / SendGrid)] as EmailService
+  [SMS Service\n(Twilio / AWS SNS)] as SMSService
+}
+
+' ============================================
+' FLUXOS DE COMUNICAÇÃO - CLIENTE PARA SERVIDOR
+' ============================================
+Browser --> CDN : "HTTP GET\n(Assets: JS, CSS, Images)"
+Browser --> Route53 : "DNS Lookup\napi.cineflow.com"
+
+MobileApp --> CDN : "HTTP GET\n(Assets: JS, CSS)"
+MobileApp --> Route53 : "DNS Lookup"
+
+Route53 --> ALB : "Routes traffic\n(Port 443/80)"
+ALB --> APIGw : "Forward HTTPS\nto API Gateway"
+
+' ============================================
+' FLUXOS - API GATEWAY PARA CONTAINERS
+' ============================================
+APIGw --> CatalogContainer : "REST API\nGET /catalogo/filmes\n(Port 8080)"
+APIGw --> SalesContainer : "REST API\nPOST /vendas/reservar\n(Port 8080)"
+APIGw --> AuthContainer : "REST API\nPOST /auth/login\n(Port 8080)"
+APIGw --> PaymentContainer : "REST API\nPOST /pagamentos/processar\n(Port 8080)"
+APIGw --> SearchContainer : "REST API\nGET /search/filmes\n(Port 8080)"
+
+' Fallback para replicas (Auto-scaling)
+APIGw --> CatalogContainerR : "Load Balancing\n(AZ2)"
+APIGw --> SalesContainerR : "Load Balancing\n(AZ2)"
+
+' ============================================
+' FLUXOS - CONTAINERS PARA BANCO DE DADOS
+' ============================================
+CatalogContainer --> DBCatalog : "JDBC/PostgreSQL\nRead/Write"
+CatalogContainerR --> DBCatalog : "Replica Read"
+
+SalesContainer --> DBSales : "JDBC/MySQL\nRead/Write"
+SalesContainerR --> DBSales : "Replica Read"
+
+AuthContainer --> DBAuth : "JDBC/PostgreSQL\nRead/Write"
+PaymentContainer --> DBPayment : "JDBC/PostgreSQL\nRead/Write"
+
+' ============================================
+' FLUXOS - CACHE E SEARCH
+' ============================================
+CatalogContainer --> Redis : "GET/SET\n(Session Cache, Rate Limit)"
+SalesContainer --> Redis : "GET/SET\nReserva Cache"
+
+SearchContainer --> OpenSearch : "HTTP REST\nIndex/Query\n(Full-Text Search)"
+
+' ============================================
+' FLUXOS - ARMAZENAMENTO
+' ============================================
+CatalogContainer --> S3 : "PUT/GET\n(Poster de filmes,\nBackups)"
+NotifContainer --> S3 : "PUT\n(Log de notificações)"
+
+' ============================================
+' FLUXOS - MESSAGE QUEUE (ASSINCRONISMO)
+' ============================================
+SalesContainer --> SQS : "SendMessage\nReservaConfirmada\nEvent"
+SalesContainer --> RabbitMQ : "Publish\nPagamentoProcessado\nEvent"
+
+PaymentContainer --> SQS : "SendMessage\nTransacao"
+PaymentContainer --> RabbitMQ : "Publish\nPagamentoConfirmado"
+
+NotifContainer --> SQS : "ReceiveMessage\n(Consome fila)"
+NotifContainer --> RabbitMQ : "Subscribe\n(Consome eventos)"
+
+' ============================================
+' FLUXOS - INTEGRAÇÕES EXTERNAS
+' ============================================
+PaymentContainer --> PaymentGW : "HTTPS POST\n/charge\n(PCI Compliance)"
+
+NotifContainer --> EmailService : "SMTP\nsend@cineflow\n(AWS SES)"
+NotifContainer --> SMSService : "HTTPS API\nSend SMS\n(Twilio/SNS)"
+
+' ============================================
+' FLUXOS - OBSERVABILIDADE
+' ============================================
+CatalogContainer .right.> CloudWatch : "POST /logs\nMetrics, Logs"
+SalesContainer .right.> CloudWatch : "CloudWatch Agent"
+AuthContainer .right.> CloudWatch : "Logs & Events"
+PaymentContainer .right.> CloudWatch : "Error Tracking"
+NotifContainer .right.> CloudWatch : "Queue Metrics"
+SearchContainer .right.> CloudWatch : "Index Health"
+
+APIGw .right.> XRay : "Trace requests\n(Latency analysis)"
+ALB .right.> XRay : "Trace LB activity"
+
+SalesContainer .right.> EventBridge : "Route events\n(Order Stream)"
+
+' ============================================
+' NOTAS E INFORMAÇÕES
+' ============================================
+note top of ECSCluster
+  **ECS Fargate Cluster:**
+  - Serverless container orchestration
+  - Auto-scaling based on CPU/Memory
+  - Multi-AZ for high availability
+  - Container registry: ECR
+end note
+
+note right of CloudWatch
+  **Observabilidade:**
+  - Real-time metrics & alarms
+  - Centralized log aggregation
+  - Performance dashboards
+  - Alert escalation
+end note
+
+note bottom of DBCatalog
+  **Database Strategy:**
+  - Aurora Multi-AZ for HA
+  - Read replicas for scaling
+  - Automated backups
+  - Encryption at rest & in transit
+end note
+
+note left of SQS
+  **Message Queue Pattern:**
+  - Async processing
+  - Decoupling of services
+  - Retry mechanism
+  - Dead-letter queue handling
+end note
+
+note right of PaymentGW
+  **Security Requirements:**
+  - PCI-DSS Compliance
+  - Tokenization
+  - End-to-end encryption
+  - No sensitive data in logs
+end note
+
+note bottom of S3
+  **Storage Strategy:**
+  - Static asset CDN distribution
+  - Database backup archival
+  - Versioning & lifecycle policies
+  - Cross-region replication
+end note
+
+@enduml

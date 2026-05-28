@@ -1,0 +1,310 @@
+@startuml
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 50
+skinparam ranksep 50
+skinparam pad 20
+
+' CORES E ESTILOS
+skinparam package {
+  BackgroundColor #F0F8FF
+  BorderColor #4169E1
+  FontStyle bold
+  FontColor #000080
+}
+
+skinparam component {
+  BackgroundColor #FFFFFF
+  BorderColor #2E5090
+  FontColor #000000
+}
+
+skinparam database {
+  BackgroundColor #E3F2FD
+  BorderColor #0D47A1
+  FontColor #000000
+}
+
+skinparam queue {
+  BackgroundColor #FFF3E0
+  BorderColor #E65100
+  FontColor #000000
+}
+
+skinparam file {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+  FontColor #000000
+}
+
+skinparam interface {
+  BackgroundColor #FFE082
+  BorderColor #FF8F00
+  FontColor #000000
+}
+
+' ============================================
+' TITULO E CAMADA DE APRESENTAÇÃO
+' ============================================
+title CineFlow - Diagrama de Componentes (Arquitetura de Microsserviços)
+
+' CLIENTES
+actor "Usuário Web" as UserWeb
+actor "Usuário Mobile" as UserMobile
+
+' CAMADA DE APRESENTAÇÃO
+package "Camada de Apresentação" {
+  component "Frontend Web SPA\n(React/Vue/Angular)" as WebUI
+  component "Aplicativo Mobile\n(React Native/Flutter)" as MobileUI
+}
+
+' API GATEWAY
+component "API Gateway\n(Roteamento, Autenticação, Rate Limiting)" as APIGateway
+
+UserWeb --> WebUI
+UserMobile --> MobileUI
+WebUI --> APIGateway
+MobileUI --> APIGateway
+
+' ============================================
+' CAMADA DE MICROSSERVIÇOS
+' ============================================
+package "Camada de Microsserviços" {
+
+  ' ---- MS CATÁLOGO ----
+  package "Serviço de Catálogo (MS-Catalog)" {
+    interface "API REST\n(/catalogo/filmes)" as API_Cat
+    component "CatalogController" as CatCtrl {
+      file "CatalogDTO" as CatDTO
+    }
+    component "CatalogService" as CatSvc
+    component "CatalogRepository" as CatRepo
+    component "FilmeModel" as FilmeModel
+    component "SessaoModel" as SessaoModel
+    database "PostgreSQL\nDB_Catalogo" as DB_Cat
+
+    API_Cat -down- CatCtrl : "HTTP GET/POST"
+    CatCtrl -right-> CatDTO : "Serialização"
+    CatCtrl --> CatSvc : "Orquestra lógica"
+    CatSvc -right-> FilmeModel : "Manipula"
+    CatSvc -right-> SessaoModel : "Manipula"
+    CatSvc --> CatRepo : "Consulta dados"
+    CatRepo --> DB_Cat : "JDBC/ORM"
+  }
+
+  ' ---- MS VENDAS ----
+  package "Serviço de Vendas (MS-Sales)" {
+    interface "API REST\n(/vendas/reservas)" as API_Sales
+    component "SalesController" as SalesCtrl {
+      file "ReservaDTO" as ReservaDTO
+      file "Ingresso" as IngressoDTO
+    }
+    component "SalesService" as SalesSvc
+    component "ReservaModel" as ReservaModel
+    component "IngressoModel" as IngressoModel
+    component "SalesRepository" as SalesRepo
+    database "Aurora/RDS\nDB_Vendas" as DB_Sales
+
+    API_Sales -down- SalesCtrl : "HTTP GET/POST/PUT"
+    SalesCtrl -right-> ReservaDTO : "Serialização"
+    SalesCtrl --> ReservaDTO
+    SalesCtrl --> SalesSvc : "Orquestra lógica"
+    SalesSvc -right-> ReservaModel : "Regras de negócio"
+    SalesSvc -right-> IngressoModel : "Regras de negócio"
+    SalesSvc --> SalesRepo : "Acesso a dados"
+    SalesRepo --> DB_Sales : "JDBC/ORM"
+  }
+
+  ' ---- MS AUTENTICAÇÃO ----
+  package "Serviço de Autenticação (MS-Auth)" {
+    interface "API REST\n(/auth/login)" as API_Auth
+    component "AuthController" as AuthCtrl {
+      file "CredenciaisDTO" as CredDTO
+      file "TokenDTO" as TokenDTO
+    }
+    component "AuthService" as AuthSvc
+    component "JWTProvider" as JWTProvider
+    component "UsuarioModel" as UsuarioModel
+    component "AuthRepository" as AuthRepo
+    database "PostgreSQL\nDB_Auth" as DB_Auth
+
+    API_Auth -down- AuthCtrl : "HTTP POST"
+    AuthCtrl -right-> CredDTO : "Recebe"
+    AuthCtrl --> TokenDTO : "Retorna"
+    AuthCtrl --> AuthSvc : "Valida credentials"
+    AuthSvc --> JWTProvider : "Gera JWT"
+    AuthSvc -right-> UsuarioModel : "Valida"
+    AuthSvc --> AuthRepo : "Consulta dados"
+    AuthRepo --> DB_Auth : "JDBC/ORM"
+  }
+
+  ' ---- MS PAGAMENTO ----
+  package "Serviço de Pagamento (MS-Payment)" {
+    interface "API REST\n(/pagamentos/processar)" as API_Pay
+    component "PaymentController" as PayCtrl {
+      file "PagamentoDTO" as PagDTO
+    }
+    component "PaymentService" as PaySvc
+    component "PagamentoAdapter" as PayAdapter
+    component "TransacaoModel" as TransacaoModel
+    component "PaymentRepository" as PayRepo
+    database "RDS\nDB_Payment" as DB_Pay
+
+    API_Pay -down- PayCtrl : "HTTP POST"
+    PayCtrl -right-> PagDTO : "Serialização"
+    PayCtrl --> PaySvc : "Processa pagamento"
+    PaySvc -right-> TransacaoModel : "Regras"
+    PaySvc --> PayAdapter : "Integra com gateway"
+    PaySvc --> PayRepo : "Armazena transação"
+    PayRepo --> DB_Pay : "JDBC/ORM"
+  }
+
+  ' ---- MS NOTIFICAÇÃO ----
+  package "Serviço de Notificação (MS-Notification)" {
+    interface "API REST\n(/notificacoes/enviar)" as API_Notif
+    component "NotificationController" as NotifCtrl {
+      file "NotificacaoDTO" as NotifDTO
+    }
+    component "NotificationService" as NotifSvc
+    component "NotificationWorker" as NotifWorker
+    component "EmailTemplate" as EmailTpl
+    component "NotificacaoModel" as NotifModel
+
+    API_Notif -down- NotifCtrl : "HTTP POST"
+    NotifCtrl -right-> NotifDTO : "Serialização"
+    NotifCtrl --> NotifSvc : "Enfileira notificação"
+    NotifSvc --> NotifWorker : "Delega async"
+    NotifWorker -right-> EmailTpl : "Renderiza template"
+    NotifWorker -right-> NotifModel : "Manipula"
+  }
+
+  ' ---- MS BUSCA ----
+  package "Serviço de Busca (MS-Search)" {
+    interface "API REST\n(/search/filmes)" as API_Search
+    component "SearchController" as SearchCtrl {
+      file "QueryDTO" as QueryDTO
+    }
+    component "SearchService" as SearchSvc
+    component "SearchRepository" as SearchRepo
+    database "OpenSearch/Elasticsearch\nSearch_Index" as DB_Search
+
+    API_Search -down- SearchCtrl : "HTTP GET"
+    SearchCtrl -right-> QueryDTO : "Recebe parâmetros"
+    SearchCtrl --> SearchSvc : "Busca com filtros"
+    SearchSvc --> SearchRepo : "Query index"
+    SearchRepo --> DB_Search : "REST/HTTP"
+  }
+
+}
+
+' ============================================
+' CAMADA DE MENSAGERIA
+' ============================================
+package "Camada de Mensageria (Comunicação Assíncrona)" {
+  queue "Broker de Mensagens\n(RabbitMQ / AWS SQS)" as Broker
+  component "MessagePublisher" as MsgPub
+  component "MessageConsumer" as MsgCon
+}
+
+' ============================================
+' SERVIÇOS EXTERNOS
+' ============================================
+package "Serviços Externos e Integrações" {
+  component "Gateway de Pagamento\n(Stripe / PayPal / MercadoPago)" as ExtPayGW
+  component "Serviço de Email\n(AWS SES / SendGrid)" as EmailService
+}
+
+' ============================================
+' ROTEAMENTO DO API GATEWAY
+' ============================================
+APIGateway --> API_Cat : "GET /catalogo/filmes"
+APIGateway --> API_Cat : "GET /catalogo/sessoes"
+APIGateway --> API_Auth : "POST /auth/login"
+APIGateway --> API_Auth : "POST /auth/logout"
+APIGateway --> API_Sales : "POST /vendas/reservar"
+APIGateway --> API_Sales : "GET /vendas/minhas-reservas"
+APIGateway --> API_Pay : "POST /pagamentos/processar"
+APIGateway --> API_Search : "GET /search/filmes"
+APIGateway --> API_Notif : "POST /notificacoes/enviar"
+
+' ============================================
+' INTEGRAÇÕES ENTRE MICROSSERVIÇOS (SÍNCRONOS)
+' ============================================
+SalesSvc .right.> API_Cat : "Consulta disponibilidade\nde sessões"
+SalesSvc .right.> API_Auth : "Valida token JWT\ndo usuário"
+SalesSvc .right.> API_Pay : "Solicita processamento\nde pagamento"
+
+CatSvc .right.> API_Search : "Indexa novos filmes\n(event-driven)"
+PaySvc .right.> API_Notif : "Solicita confirmação\nde pagamento"
+
+' ============================================
+' INTEGRAÇÕES ASSÍNCRONAS (MESSAGE BROKER)
+' ============================================
+SalesSvc --> MsgPub : "Publica evento\nReservaConfirmada"
+PaySvc --> MsgPub : "Publica evento\nPagamentoProcessado"
+MsgPub --> Broker : "Enfileira mensagens"
+
+NotifWorker --> MsgCon : "Consome eventos"
+MsgCon --> Broker : "Lê da fila"
+
+NotifWorker --> EmailService : "Envia email\nvia SMTP"
+PayAdapter --> ExtPayGW : "Integra com\ngateway externo"
+
+' ============================================
+' NOTAS E RESPONSABILIDADES
+' ============================================
+note right of CatSvc
+  **Responsabilidades:**
+  - Catálogo de filmes e sessões
+  - Sincroniza com Search Service
+  - Controla disponibilidade
+end note
+
+note right of SalesSvc
+  **Responsabilidades:**
+  - Gerencia reservas
+  - Orquestra fluxo de pagamento
+  - Publica eventos de negócio
+  - Emite ingressos
+end note
+
+note right of AuthSvc
+  **Responsabilidades:**
+  - Autenticação via JWT
+  - Validação de credenciais
+  - Controle de acesso
+end note
+
+note right of PaySvc
+  **Responsabilidades:**
+  - Processamento de pagamentos
+  - Integração com gateways
+  - Registro de transações
+  - Retry logic
+end note
+
+note right of NotifSvc
+  **Responsabilidades:**
+  - Enfileiramento de notificações
+  - Templates de email
+  - Retry / Dead-letter handling
+  - Envio assíncrono
+end note
+
+note right of SearchSvc
+  **Responsabilidades:**
+  - Busca full-text
+  - Filtros avançados
+  - Sincronização de índices
+  - Performance otimizada
+end note
+
+note bottom of Broker
+  **Comunicação Assíncrona:**
+  - Desacoplamento entre serviços
+  - Event-driven architecture
+  - Garantia de entrega
+  - Dead-letter queues para falhas
+end note
+
+@enduml

@@ -1,0 +1,35 @@
+@startuml
+title Diagrama de Arquitetura - CineFlow (Visão Geral)
+package "Front-end" {
+  [Web SPA]
+  [Aplicativo Mobile]
+}
+
+package "Plataforma" {
+  [API Gateway / BFF]
+  [Load Balancer]
+}
+
+package "Microsserviços" {
+  [Catalog Service]
+  [Sales Service]
+  [Auth Service]
+  [Payment Service]
+  [Notification Service]
+  [Search Service]
+}
+
+package "Infraestrutura" {
+  [Message Broker (RabbitMQ / SQS)]
+  [Elasticsearch / OpenSearch]
+  [Banco de Dados por Serviço]
+}
+
+[Web SPA] --> [API Gateway / BFF]
+[Aplicativo Mobile] --> [API Gateway / BFF]
+[API Gateway / BFF] --> [Catalog Service]
+[API Gateway / BFF] --> [Sales Service]
+[Sales Service] --> [Message Broker (RabbitMQ / SQS)]
+[Search Service] --> [Elasticsearch / OpenSearch]
+
+@enduml

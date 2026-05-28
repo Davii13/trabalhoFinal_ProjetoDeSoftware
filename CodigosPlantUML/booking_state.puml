@@ -1,0 +1,11 @@
+@startuml
+title Diagrama de Estados - Reserva (CineFlow)
+[*] --> PENDENTE
+PENDENTE --> CONFIRMADA : pagamento aprovado
+PENDENTE --> CANCELADA : cancelamento pelo usuário
+CONFIRMADA --> UTILIZADA : ingresso validado
+CONFIRMADA --> CANCELADA : estorno/refund
+CANCELADA --> [*]
+UTILIZADA --> [*]
+
+@enduml

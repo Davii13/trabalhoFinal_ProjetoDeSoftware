@@ -1,0 +1,68 @@
+@startuml
+title Diagrama de Classes - Domínio CineFlow
+class Usuario {
+  +id: UUID
+  +nome: String
+  +email: String
+  +senhaHash: String
+  +autenticar()
+}
+
+class Cliente {
+  +telefone: String
+}
+
+class Administrador
+
+class Filme {
+  +id: UUID
+  +titulo: String
+  +descricao: String
+  +duracaoMin: Int
+}
+
+class Sala {
+  +id: UUID
+  +nome: String
+  +capacidade: Int
+}
+
+class Sessao {
+  +id: UUID
+  +inicio: DateTime
+  +preco: Decimal
+  +obterAssentosDisponiveis()
+}
+
+class Assento {
+  +id: UUID
+  +linha: String
+  +numero: String
+}
+
+class Reserva {
+  +id: UUID
+  +dataCriacao: DateTime
+  +status: String
+  +valor: Decimal
+  +confirmar()
+  +cancelar()
+}
+
+class Pagamento {
+  +id: UUID
+  +metodo: String
+  +status: String
+  +valor: Decimal
+}
+
+Usuario <|-- Cliente
+Usuario <|-- Administrador
+Filme "1" <-- "0..*" Sessao
+Sala "1" <-- "0..*" Sessao
+Sessao "1" <-- "0..*" Assento
+Sessao "1" <-- "0..*" Reserva
+Reserva "1" --> "1..*" Assento
+Reserva "1" --> "1" Pagamento
+
+@enduml

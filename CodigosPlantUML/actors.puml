@@ -1,0 +1,10 @@
+@startuml
+title Diagrama de Atores - CineFlow
+left to right direction
+actor "Cliente" as Cliente
+actor "Administrador" as Administrador
+actor "Funcionário de Cinema" as Funcionario
+actor "Gateway de Pagamento Externo" as GatewayPagamento
+actor "Serviço Externo de Filmes" as ServicoFilmes
+
+@enduml

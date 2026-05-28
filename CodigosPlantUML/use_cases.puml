@@ -1,0 +1,34 @@
+@startuml
+title Diagrama de Casos de Uso - CineFlow
+left to right direction
+actor Cliente
+actor Administrador
+actor Funcionario
+
+rectangle "CineFlow" {
+  usecase "Navegar filmes" as UC1
+  usecase "Visualizar sessões" as UC2
+  usecase "Reservar ingresso" as UC3
+  usecase "Cancelar reserva" as UC4
+  usecase "Pagar reserva" as UC5
+  usecase "Avaliar filme" as UC6
+  usecase "Gerenciar filmes" as UC7
+  usecase "Gerenciar sessões" as UC8
+  usecase "Autenticar" as UC9
+}
+
+Cliente --> UC1
+Cliente --> UC2
+Cliente --> UC3
+Cliente --> UC4
+Cliente --> UC5
+Cliente --> UC6
+Cliente --> UC9
+
+Administrador --> UC7
+Administrador --> UC8
+Administrador --> UC9
+
+Funcionario --> UC8
+
+@enduml

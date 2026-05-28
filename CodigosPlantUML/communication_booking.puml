@@ -1,0 +1,185 @@
+@startuml
+title CineFlow - Diagrama de Comunicação - Fluxo Completo de Reserva e Pagamento
+
+' Atores e Sistemas
+actor Cliente as Cliente
+participant "Web/Mobile\nUI" as UI
+participant "API Gateway\n(Autenticação)" as APIGw
+participant "Catalog\nService" as CatalogSvc
+participant "Sales\nService" as SalesSvc
+participant "Payment\nService" as PaymentSvc
+participant "Message Broker\n(SQS/RabbitMQ)" as Broker
+participant "Notification\nService" as NotifSvc
+participant "External\nPayment GW\n(Stripe)" as ExtPayGW
+participant "Email\nService\n(SES)" as EmailSvc
+participant "Database\n(Sales DB)" as SalesDB
+
+' ============================================
+' FASE 1: AUTENTICAÇÃO
+' ============================================
+autonumber 1 1 "1."
+Cliente -> UI: Faz login com credenciais
+UI -> APIGw: POST /auth/login (username, password)
+APIGw -> APIGw: Valida JWT / Session
+APIGw -> UI: Retorna Access Token (JWT)
+
+' ============================================
+' FASE 2: NAVEGAÇÃO NO CATÁLOGO
+' ============================================
+autonumber 1 5 "5."
+Cliente -> UI: Busca filmes em cartaz
+UI -> APIGw: GET /catalogo/filmes?genero=acao
+APIGw -> CatalogSvc: Roteamento para Catalog Service
+CatalogSvc -> CatalogSvc: Consulta filmografia
+CatalogSvc -> UI: Retorna lista de filmes com sessões
+UI -> Cliente: Exibe catálogo (posters, sinopse, horários)
+
+' ============================================
+' FASE 3: SELEÇÃO E VERIFICAÇÃO DE DISPONIBILIDADE
+' ============================================
+autonumber 1 12 "12."
+Cliente -> UI: Seleciona filme e sessão
+UI -> APIGw: GET /catalogo/sessoes/{sessaoId}/disponibilidade
+APIGw -> CatalogSvc: Consulta capacidade disponível
+CatalogSvc -> CatalogSvc: Verifica assentos livres
+CatalogSvc -> UI: Retorna {disponivel: true, assentosLivres: 45}
+UI -> Cliente: Exibe mapa de assentos
+
+' ============================================
+' FASE 4: CRIAÇÃO DA RESERVA (PENDENTE)
+' ============================================
+autonumber 1 18 "18."
+Cliente -> UI: Seleciona assentos e confirma reserva
+UI -> APIGw: POST /vendas/reservar (JWT, sessaoId, assentos[])
+APIGw -> SalesSvc: Encaminha requisição autenticada
+SalesSvc -> SalesDB: BEGIN TRANSACTION
+SalesSvc -> SalesDB: INSERT INTO reservas (usuarioId, sessaoId, status=PENDENTE)
+SalesSvc -> SalesDB: INSERT INTO ingressos (reservaId, assento[], status=BLOQUEADO)
+SalesSvc -> SalesSvc: LOCK reserved seats (otimistic lock)
+SalesDB -> SalesSvc: Confirmação de inserção (reservaId = 12345)
+SalesSvc -> SalesSvc: COMMIT TRANSACTION
+
+' ============================================
+' FASE 5: COMUNICAÇÃO ASSÍNCRONA (EVENT-DRIVEN)
+' ============================================
+autonumber 1 28 "28."
+SalesSvc -> Broker: PUBLISH evento 'ReservaConfirmada'\n{reservaId, usuarioId, totalAmount}
+Broker -> Broker: Enfileira mensagem (durável)
+Broker -> NotifSvc: DELIVER evento 'ReservaConfirmada'
+NotifSvc -> NotifSvc: Processa evento de fila
+NotifSvc -> NotifSvc: Gera notificação\n{reservaId, email, tipoNotificacao}
+
+SalesSvc -> APIGw: Resposta imediata\n{reservaId, status: PENDENTE, expiração: 15min}
+
+' ============================================
+' FASE 6: PROCESSAMENTO DE PAGAMENTO
+' ============================================
+autonumber 1 37 "37."
+UI -> APIGw: POST /pagamentos/processar\n(JWT, reservaId, metodo='CARTAO', numeroCartao)
+APIGw -> PaymentSvc: Roteamento
+PaymentSvc -> SalesDB: SELECT reserva WHERE id = 12345
+SalesDB -> PaymentSvc: Retorna {reservaId, totalAmount, usuarioId}
+PaymentSvc -> PaymentSvc: Validação PCI (tokenização)
+PaymentSvc -> PaymentSvc: Cria objeto Transaction {reservaId, amount, timestamp}
+
+' ---- INTEGRAÇÃO COM GATEWAY EXTERNO ----
+PaymentSvc -> ExtPayGW: POST /charge\n{token, amount: 150.00, currency: 'BRL'}
+ExtPayGW -> ExtPayGW: Processa pagamento em tempo real
+ExtPayGW -> PaymentSvc: Resposta {transactionId, status: 'succeeded', token}
+PaymentSvc -> SalesDB: INSERT INTO transacoes {reservaId, transactionId, status: APROVADO}
+
+' ============================================
+' FASE 7: CONFIRMAÇÃO DA RESERVA
+' ============================================
+autonumber 1 50 "50."
+PaymentSvc -> SalesSvc: Callback/Update: RESERVE CONFIRMED
+SalesSvc -> SalesDB: UPDATE reservas SET status = 'CONFIRMADA' WHERE id = 12345
+SalesSvc -> SalesDB: UPDATE ingressos SET status = 'EMITIDO' WHERE reservaId = 12345
+SalesDB -> SalesSvc: Confirmação update
+
+PaymentSvc -> Broker: PUBLISH evento 'PagamentoConfirmado'\n{reservaId, usuarioId, totalAmount}
+Broker -> NotifSvc: DELIVER evento 'PagamentoConfirmado'
+
+PaymentSvc -> APIGw: Resposta {transactionId, status: 'confirmed'}
+APIGw -> UI: HTTP 200 OK\n{reservaId, ingressos[{numero, assento}], confirmacao}
+
+' ============================================
+' FASE 8: NOTIFICAÇÃO PÓS-PAGAMENTO
+' ============================================
+autonumber 1 62 "62."
+NotifSvc -> NotifSvc: Consome evento 'PagamentoConfirmado'
+NotifSvc -> NotifSvc: Renderiza template de email\n(ingressos PDF, QR codes)
+NotifSvc -> EmailSvc: SMTP SEND\nTo: usuario@email.com\nSubject: "Ingressos - CineFlow"
+
+' ---- EMAIL PROCESSADO ----
+EmailSvc -> EmailSvc: Enfileira envio (SES)
+EmailSvc -> EmailSvc: Tentativa de entrega\n(Retry: 3 vezes)
+EmailSvc -> NotifSvc: Acknowledgment {status: 'sent', messageId}
+
+NotifSvc -> SalesDB: INSERT INTO notificacoes\n{usuarioId, tipoNotificacao, status: 'ENVIADO'}
+
+' ============================================
+' FASE 9: EXIBIÇÃO DE CONFIRMAÇÃO AO CLIENTE
+' ============================================
+autonumber 1 73 "73."
+UI -> Cliente: Exibe "Pagamento confirmado!"
+UI -> Cliente: Exibe ingressos com QR codes
+UI -> Cliente: Mensagem: "Ingressos enviados para seu email"
+Cliente -> Cliente: Recebe email com ingressos em PDF
+
+' ============================================
+' FASE 10: FLUXO DE ERRO (TIMEOUT)
+' ============================================
+autonumber 1 78 "78."
+note over SalesSvc, SalesDB
+  **CASO DE ERRO: Timeout na confirmação**
+  - Se pagamento não confirmar em 15 minutos
+  - Sistema expira reserva automaticamente
+end note
+
+SalesSvc -> SalesDB: SELECT reservas WHERE status='PENDENTE' AND criadoEm < NOW() - 15min
+SalesDB -> SalesSvc: Retorna lista de reservas expiradas
+SalesSvc -> SalesSvc: Para cada reserva expirada:
+SalesSvc -> SalesDB: UPDATE ingressos SET status='CANCELADO'
+SalesSvc -> SalesDB: UPDATE reservas SET status='EXPIRADA'
+SalesSvc -> Broker: PUBLISH evento 'ReservaCancelada'
+
+Broker -> NotifSvc: DELIVER evento 'ReservaCancelada'
+NotifSvc -> EmailSvc: SMTP SEND\n"Sua reserva expirou - faça nova tentativa"
+
+' ============================================
+' NOTAS EXPLICATIVAS
+' ============================================
+note right of SalesSvc
+  **Orquestração e Regras:**
+  - Controle de concorrência (otimistic lock)
+  - Transações ACID
+  - Timeout de 15 minutos
+  - Retry automático
+end note
+
+note right of Broker
+  **Padrão Event-Driven:**
+  - Desacoplamento de serviços
+  - Garantia de entrega durável
+  - Dead-letter queue para erros
+  - Replay de eventos possível
+end note
+
+note right of ExtPayGW
+  **Segurança:**
+  - PCI-DSS Compliance
+  - Tokenização obrigatória
+  - HTTPS/TLS 1.2+
+  - Timeout: 30 segundos
+end note
+
+note right of EmailSvc
+  **Entrega de Email:**
+  - SES da AWS com retry automático
+  - Templates com ingressos PDF
+  - QR codes para validação
+  - Webhook de bounce/complaint
+end note
+
+@enduml
